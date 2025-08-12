@@ -1,11 +1,14 @@
-name: Create Rocky 8 Bazel Sysroot
+name: Build and Publish Rocky8 Sysroot
 
 on:
   push:
+      branches: [ main ]
 
 jobs:
-  create-sysroot:
+  build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create/releases & upload assets
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -13,31 +16,59 @@ jobs:
       - name: Pull Rocky 8 image
         run: docker pull rockylinux:8
 
-      - name: Create container from Rocky 8
-        run: docker create --name rocky8-container rockylinux:8
-
-      - name: Export and extract minimal sysroot
+      - name: Create container and install dev packages
         run: |
-          mkdir rocky8-sysroot-full
-          docker export rocky8-container | tar -C rocky8-sysroot-full -xf -
+          docker run --name rocky8-dev \
+            -d rockylinux:8 sleep 3600
+          docker exec rocky8-dev bash -c "dnf -y update && dnf install -y glibc-devel libstdc++-devel kernel-headers && dnf clean all"
+          # give dnf time to finish and ensure container remains
+          sleep 2
 
-          # Start minimal sysroot directory
-          mkdir rocky8-sysroot-min
-
-          # Copy required include and library directories
-          rsync -a rocky8-sysroot-full/usr/include rocky8-sysroot-min/usr/
-          rsync -a rocky8-sysroot-full/usr/lib* rocky8-sysroot-min/usr/ || true
-          rsync -a rocky8-sysroot-full/lib* rocky8-sysroot-min/ || true
-
-          # Clean up docs, man pages, locales
-          rm -rf rocky8-sysroot-min/usr/share/{man,doc,info,locale}
-
-      - name: Tar minimal sysroot
+      - name: Export filesystem
         run: |
-          tar --numeric-owner -C rocky8-sysroot-min -czf rocky8-sysroot.tar.gz .
+          mkdir -p sysroot-full
+          docker export rocky8-dev | tar -C sysroot-full -xf -
 
-      - name: Upload sysroot artifact
-        uses: actions/upload-artifact@v4
+      - name: Build minimal sysroot
+        run: |
+          mkdir -p sysroot-min/usr
+          rsync -a sysroot-full/usr/include sysroot-min/usr/
+          rsync -a --copy-unsafe-links sysroot-full/usr/lib* sysroot-min/usr/ || true
+          rsync -a --copy-unsafe-links sysroot-full/lib* sysroot-min/ || true
+
+          mkdir -p sysroot-min/usr/lib/pkgconfig
+          rsync -a --include '*/' --include '*.pc' --exclude '*' sysroot-full/usr/lib/pkgconfig/ sysroot-min/usr/lib/pkgconfig/ || true
+          rsync -a --include '*/' --include '*.pc' --exclude '*' sysroot-full/usr/lib64/pkgconfig/ sysroot-min/usr/lib64/pkgconfig/ || true
+
+          rm -rf sysroot-min/usr/share/{man,doc,info,locale} || true
+
+          tar --numeric-owner -C sysroot-min -czf rocky8-sysroot.tar.gz .
+
+      - name: Compute sha256
+        id: sha
+        run: |
+          sha256sum rocky8-sysroot.tar.gz | awk '{print $1}' > sha256.txt
+          echo "sha256=$(cat sha256.txt)" >> $GITHUB_OUTPUT
+
+      - name: Create or update release
+        id: create_release
+        uses: softprops/action-gh-release@v1
         with:
-          name: rocky8-sysroot
-          path: rocky8-sysroot.tar.gz
+          tag_name: sysroot-rocky8-${{ github.run_id }}
+          name: "rocky8-sysroot-${{ github.run_id }}"
+          body: "Automated sysroot build - run ${{ github.run_id }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload sysroot asset to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: rocky8-sysroot.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print artifact metadata
+        run: |
+          echo "sysroot_url: https://github.com/${{ github.repository }}/releases/download/sysroot-rocky8-${{ github.run_id }}/rocky8-sysroot.tar.gz"
+          echo "sha256: ${{ steps.sha.outputs.sha256 }}"
+
