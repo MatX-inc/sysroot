@@ -52,18 +52,11 @@ jobs:
           echo "sha256=$(cat sha256.txt)" >> $GITHUB_OUTPUT
 
       - name: Create or update release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: sysroot-rocky8-${{ github.run_id }}
           name: "rocky8-sysroot-${{ github.run_id }}"
           body: "Automated sysroot build - run ${{ github.run_id }}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload sysroot asset to release
-        uses: softprops/action-gh-release@v1
-        with:
           files: rocky8-sysroot.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
