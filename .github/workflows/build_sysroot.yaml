@@ -1,0 +1,43 @@
+name: Create Rocky 8 Bazel Sysroot
+
+on:
+  push:
+
+jobs:
+  create-sysroot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull Rocky 8 image
+        run: docker pull rockylinux:8
+
+      - name: Create container from Rocky 8
+        run: docker create --name rocky8-container rockylinux:8
+
+      - name: Export and extract minimal sysroot
+        run: |
+          mkdir rocky8-sysroot-full
+          docker export rocky8-container | tar -C rocky8-sysroot-full -xf -
+
+          # Start minimal sysroot directory
+          mkdir rocky8-sysroot-min
+
+          # Copy required include and library directories
+          rsync -a rocky8-sysroot-full/usr/include rocky8-sysroot-min/usr/
+          rsync -a rocky8-sysroot-full/usr/lib* rocky8-sysroot-min/usr/ || true
+          rsync -a rocky8-sysroot-full/lib* rocky8-sysroot-min/ || true
+
+          # Clean up docs, man pages, locales
+          rm -rf rocky8-sysroot-min/usr/share/{man,doc,info,locale}
+
+      - name: Tar minimal sysroot
+        run: |
+          tar --numeric-owner -C rocky8-sysroot-min -czf rocky8-sysroot.tar.gz .
+
+      - name: Upload sysroot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocky8-sysroot
+          path: rocky8-sysroot.tar.gz
