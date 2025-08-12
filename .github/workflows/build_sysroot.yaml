@@ -36,10 +36,6 @@ jobs:
           rsync -a --copy-unsafe-links sysroot-full/usr/lib* sysroot-min/usr/ || true
           rsync -a --copy-unsafe-links sysroot-full/lib* sysroot-min/ || true
 
-          mkdir -p sysroot-min/usr/lib/pkgconfig
-          rsync -a --include '*/' --include '*.pc' --exclude '*' sysroot-full/usr/lib/pkgconfig/ sysroot-min/usr/lib/pkgconfig/ || true
-          rsync -a --include '*/' --include '*.pc' --exclude '*' sysroot-full/usr/lib64/pkgconfig/ sysroot-min/usr/lib64/pkgconfig/ || true
-
           rm -rf sysroot-min/usr/share/{man,doc,info,locale} || true
 
           tar --numeric-owner -C sysroot-min -czf rocky8-sysroot.tar.gz .
